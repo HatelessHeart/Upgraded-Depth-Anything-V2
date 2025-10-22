@@ -23,7 +23,7 @@ if torch.cuda.is_available():
     cudnn.benchmark = False
     cudnn.deterministic = True
 
-def process_image(img_path, output_path, input_size, encoder, pred_only, grayscale):
+def process_image(img_path, output_path, input_size, encoder):
     DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
     
     model_configs = {
@@ -48,8 +48,6 @@ def process_image(img_path, output_path, input_size, encoder, pred_only, graysca
     
     os.makedirs(output_path, exist_ok=True)
     
-    cmap = matplotlib.colormaps.get_cmap('gray')
-    
     for k, filename in enumerate(tqdm(filenames, desc="Processing images", unit="image")):
         print(f'Progress {k+1}/{len(filenames)}: {filename}')
         
@@ -73,9 +71,7 @@ def main():
         parser.add_argument('--input-size', type=int, default=2018)
         parser.add_argument('--outdir', type=str, default='vis_img_depth', help='Output directory')
         
-        parser.add_argument('--encoder', type=str, default='vitl', choices=['vits', 'vitb', 'vitl', 'vitg'])     
-        parser.add_argument('--pred-only', dest='pred_only', action='store_true', help='only display the prediction')
-        parser.add_argument('--grayscale', dest='grayscale', action='store_true', help='do not apply colorful palette')
+        parser.add_argument('--encoder', type=str, default='vitl', choices=['vits', 'vitb', 'vitl', 'vitg'])
         
         args = parser.parse_args()
         
@@ -88,7 +84,7 @@ def main():
         args.img_path = remove_double_quotes(args.img_path)
         args.outdir = remove_double_quotes(args.outdir)
         
-        process_image(args.img_path, args.outdir, args.input_size, args.encoder, args.pred_only, args.grayscale)
+        process_image(args.img_path, args.outdir, args.input_size, args.encoder)
         
         again = input("Convert another image? Y/N: ").strip().lower()
         if again not in ['y', 'yes']:
