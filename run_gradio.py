@@ -77,8 +77,8 @@ state_dict = load_file(checkpoint_path)
 model.load_state_dict(state_dict)
 model = model.to(DEVICE).eval()
 
-def predict_depth(image):
-    return model.infer_image(image)
+def predict_depth(image, input_size=518):
+    return model.infer_image(image, input_size)
 
 def save_image_with_structure(image, prefix, suffix):
     base_path = 'outputs'
@@ -103,77 +103,37 @@ def save_video_first_frame_with_structure(image, prefix, suffix, output_path):
     image.save(filename)
     return filename
 
-def apply_seamless_processing(depth_map, method='edge_blend', blend_width=32):
-    """Apply seamless processing to depth maps for tiling capabilities"""
-    h, w = depth_map.shape
-    processed_depth = depth_map.copy()
-    
-    if method == 'edge_blend':
-        for i in range(blend_width):
-            alpha = i / blend_width
-            processed_depth[i, :] = alpha * depth_map[i, :] + (1 - alpha) * depth_map[-(blend_width-i), :]
-            processed_depth[-(i+1), :] = alpha * depth_map[-(i+1), :] + (1 - alpha) * depth_map[blend_width-i-1, :]
-        
-        for j in range(blend_width):
-            alpha = j / blend_width
-            processed_depth[:, j] = alpha * depth_map[:, j] + (1 - alpha) * depth_map[:, -(blend_width-j)]
-            processed_depth[:, -(j+1)] = alpha * depth_map[:, -(j+1)] + (1 - alpha) * depth_map[:, blend_width-j-1]
-    
-    return processed_depth
-
-def process_image(image, colour_map_method, bit_depth=8, seamless_mode=False):
+def process_image(image, bit_depth=8, input_size=518):
     original_image = image.copy()
     h, w = image.shape[:2]
-    depth = predict_depth(image[:, :, ::-1])
     
-    # Apply seamless processing if enabled
-    if seamless_mode:
-        depth = apply_seamless_processing(depth, method='edge_blend')
+    depth = predict_depth(image[:, :, ::-1], input_size)
     
     # Normalize depth
     depth_normalized = (depth - depth.min()) / (depth.max() - depth.min())
     
-    # Process based on bit depth
+    # Always use full precision for display
+    depth_scaled = (depth_normalized * 255.0).astype(np.uint8)
+    grey_depth = Image.fromarray(depth_scaled)
+    
+    # Save with appropriate bit depth
     if bit_depth == 8:
-        depth_scaled = (depth_normalized * 255.0).astype(np.uint8)
-        grey_depth = Image.fromarray(depth_scaled)
         suffix = '_8bit'
     elif bit_depth == 16:
-        depth_scaled = (depth_normalized * 65535.0).astype(np.uint16)
-        # For display, convert back to 8-bit
-        depth_display = (depth_normalized * 255.0).astype(np.uint8)
-        grey_depth = Image.fromarray(depth_display)
+        depth_16bit = (depth_normalized * 65535.0).astype(np.uint16)
         suffix = '_16bit'
+        # Save the 16-bit version
+        cv2.imwrite(os.path.join('outputs', f'depth_16bit{suffix}.png'), depth_16bit)
     elif bit_depth == 24:
-        depth_scaled = (depth_normalized * 16777215.0).astype(np.uint32)
-        depth_display = (depth_normalized * 255.0).astype(np.uint8)
-        grey_depth = Image.fromarray(depth_display)
         suffix = '_24bit'
     elif bit_depth == 32:
-        depth_scaled = (depth_normalized * 4294967295.0).astype(np.uint32)
-        depth_display = (depth_normalized * 255.0).astype(np.uint8)
-        grey_depth = Image.fromarray(depth_display)
         suffix = '_32bit'
     else:
-        depth_scaled = (depth_normalized * 255.0).astype(np.uint8)
-        grey_depth = Image.fromarray(depth_scaled)
         suffix = '_8bit'
     
     grey_depth_filename = save_image_with_structure(grey_depth, '', f'_greyscale_depth_map{suffix}')
     
-    if colour_map_method == 'All':
-        colourized_filenames = []
-        for method in colour_map_methods[:-1]:  # Exclude 'All' from the methods list
-            coloured_depth = (matplotlib.colormaps.get_cmap(method)(depth_normalized)[:, :, :3] * 255).astype(np.uint8)
-            coloured_depth_image = Image.fromarray(coloured_depth)
-            depth_filename = save_colourized_image_with_structure(coloured_depth_image, '', f'_coloured_depth_map{suffix}', method)
-            colourized_filenames.append(depth_filename)
-        return colourized_filenames, grey_depth_filename
-    else:
-        coloured_depth = (matplotlib.colormaps.get_cmap(colour_map_method)(depth_normalized)[:, :, :3] * 255).astype(np.uint8)
-        coloured_depth_image = Image.fromarray(coloured_depth)
-        depth_filename = save_colourized_image_with_structure(coloured_depth_image, '', f'_coloured_depth_map{suffix}', colour_map_method)
-        return [depth_filename], grey_depth_filename
+    return grey_depth_filename, grey_depth
 
 def process_video(video_paths, output_path, input_size, encoder, colour_map_method, greyscale):
     DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
@@ -270,52 +230,38 @@ with gr.Blocks(css=css) as demo:
             input_image = gr.Image(label="Input Image", type='numpy', elem_id='img-display-input')
             depth_image_slider = ImageSlider(label="Depth Map with Slider View", elem_id='img-display-output', position=0.5)
         with gr.Row():
-            with gr.Column(scale=6):
-                colour_map_dropdown_single = gr.Dropdown(label="Select Colour Map Method:", choices=colour_map_methods, value='Spectral')            
-            with gr.Column(scale=2):
-                colour_map_selection_single = gr.Dropdown(label="Colour Map Method Selection:", choices=colour_map_selections, value='Default')     
-            with gr.Column(scale=2):
-                bit_depth_single = gr.Dropdown(label="Bit Depth:", choices=[8, 16, 24, 32], value=8)
-            with gr.Column(scale=2):
-                seamless_single = gr.Checkbox(label="Seamless Processing", value=False)
+            bit_depth_single = gr.Dropdown(label="Bit Depth:", choices=[8, 16, 24, 32], value=8)
+            input_size_single = gr.Slider(label="Input Size:", minimum=64, maximum=4096, step=1, value=518)
         submit_single = gr.Button(value="Compute Depth for Single Image", variant="primary")
         grey_depth_file_single = gr.File(label="greyscale depth map", elem_id="download")
 
-        def on_submit_single(image, colour_map_method, bit_depth):
+        def on_submit_single(image, bit_depth, input_size):
             original_image = image.copy()
-            colourized_filenames, grey_depth_filename = process_image(original_image, colour_map_method, bit_depth)
-            first_colourized_image = Image.open(colourized_filenames[0])
-            first_colourized_image_np = np.array(first_colourized_image)
-            return [(original_image, first_colourized_image_np), grey_depth_filename]
+            grey_depth_filename, grey_depth_image = process_image(original_image, bit_depth, input_size)
+            grey_depth_image_np = np.array(grey_depth_image)
+            return [(original_image, grey_depth_image_np), grey_depth_filename]
         
-        colour_map_selection_single.change(fn=lambda selection: gr.update(choices=get_colour_map_methods(selection)), inputs=colour_map_selection_single, outputs=colour_map_dropdown_single)
-        submit_single.click(on_submit_single, inputs=[input_image, colour_map_dropdown_single, bit_depth_single], outputs=[depth_image_slider, grey_depth_file_single])
+        submit_single.click(on_submit_single, inputs=[input_image, bit_depth_single, input_size_single], outputs=[depth_image_slider, grey_depth_file_single])
 
     with gr.Tab("Batch Image Processing"):
         with gr.Row():
             input_images = gr.Files(label="Upload Images", type="filepath", elem_id="img-display-input")
         with gr.Row():
-            with gr.Column(scale=6):
-                colour_map_dropdown_batch = gr.Dropdown(label="Select Colour Map Method:", choices=colour_map_methods, value='Spectral')            
-            with gr.Column(scale=2):
-                colour_map_selection_batch = gr.Dropdown(label="Colour Map Method Selection:", choices=colour_map_selections, value='Default')      
-            with gr.Column(scale=2):
-                bit_depth_batch = gr.Dropdown(label="Bit Depth:", choices=[8, 16, 24, 32], value=8)
+            bit_depth_batch = gr.Dropdown(label="Bit Depth:", choices=[8, 16, 24, 32], value=8)
         submit_batch = gr.Button(value="Compute Depth for Batch", variant="primary")
         output_message = gr.Textbox(label="Output", lines=1, interactive=False)
 
-        def on_batch_submit(files, colour_map_method, bit_depth):
+        def on_batch_submit(files, bit_depth):
             if not os.path.exists('outputs'):
                 os.makedirs('outputs')
             results = []
             for file in files:
                 image = np.array(Image.open(file))
-                colourized_filenames, grey_filename = process_image(image, colour_map_method, bit_depth)
-                results.append(f"Processed {file}: {', '.join(colourized_filenames)}, {grey_filename}")
+                grey_filename, _ = process_image(image, bit_depth)
+                results.append(f"Processed {file}: {grey_filename}")
             return "\n".join(results)
         
-        colour_map_selection_batch.change(fn=lambda selection: gr.update(choices=get_colour_map_methods(selection)), inputs=colour_map_selection_batch, outputs=colour_map_dropdown_batch)
-        submit_batch.click(on_batch_submit, inputs=[input_images, colour_map_dropdown_batch, bit_depth_batch], outputs=[output_message])
+        submit_batch.click(on_batch_submit, inputs=[input_images, bit_depth_batch], outputs=[output_message])
 
     with gr.Tab("Single Video Processing"):
         with gr.Row():
