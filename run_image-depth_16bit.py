@@ -56,11 +56,11 @@ def process_image(img_path, output_path, input_size, encoder, pred_only, graysca
         raw_image = cv2.imread(filename)
         
         depth = depth_anything.infer_image(raw_image, input_size)
-        depth = (depth - depth.min()) / (depth.max() - depth.min()) * 65025.0
+        depth = (depth - depth.min()) / (depth.max() - depth.min()) * 65535.0
         depth = depth.astype(np.uint16)
         
-        depth_gray = np.repeat(depth[..., np.newaxis], 3, axis=-1)
-        cv2.imwrite(os.path.join(output_path, os.path.splitext(os.path.basename(filename))[0] + '_depth_grayscale.png'), depth_gray)
+        # Save only the 16-bit single-channel grayscale depth map
+        cv2.imwrite(os.path.join(output_path, os.path.splitext(os.path.basename(filename))[0] + '_depth_16bit.png'), depth)
 
 def remove_double_quotes(path):
     return path.replace('"', '')
