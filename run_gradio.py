@@ -204,6 +204,34 @@ def process_video(video_paths, output_path, input_size, encoder, colour_map_meth
 def get_colour_map_methods(selection):
     return full_colour_map_methods if selection == "Full" else colour_map_methods
 
+# Calculate optimal input size based on image dimensions while maintaining ratio
+def calculate_optimal_input_size(image_array, max_size=1024):
+    """
+    Calculate optimal input size that maintains aspect ratio and stays within memory limits
+    """
+    if image_array is None:
+        return 518  # Default fallback
+    
+    height, width = image_array.shape[:2]
+    aspect_ratio = width / height
+    
+    # For landscape images (width > height)
+    if aspect_ratio >= 1:
+        # Calculate width-based size, ensure it's divisible by 14 (model requirement)
+        optimal_size = min(max_size, width)
+        optimal_size = ((optimal_size // 14) * 14)
+        # Ensure minimum size
+        optimal_size = max(518, optimal_size)
+    else:
+        # For portrait images (height > width)
+        # Calculate height-based size, ensure it's divisible by 14
+        optimal_size = min(max_size, height)
+        optimal_size = ((optimal_size // 14) * 14)
+        # Ensure minimum size  
+        optimal_size = max(518, optimal_size)
+    
+    return optimal_size
+
 title = """
 # <span style="font-size: 1em; color: #FF5733;">Upgraded Depth Anything V2 🚀 </span> <span style="font-size: 1em;"> </span> <span style="font-size: 0.25em;">Please refer to our [paper](https://arxiv.org/abs/2406.09414), [project page](https://depth-anything-v2.github.io), or [github](https://github.com/MackinationsAi/Upgraded-Depth-Anything-V2) for more details.</span>
 """
@@ -231,7 +259,7 @@ with gr.Blocks(css=css) as demo:
             depth_image_slider = ImageSlider(label="Depth Map with Slider View", elem_id='img-display-output', position=0.5)
         with gr.Row():
             bit_depth_single = gr.Dropdown(label="Bit Depth:", choices=[8, 16, 24, 32], value=8)
-            input_size_single = gr.Slider(label="Input Size:", minimum=64, maximum=4096, step=1, value=518)
+            input_size_single = gr.Slider(label="Input Size (Auto-calculated from image ratio):", minimum=64, maximum=4096, step=1, value=518)
         submit_single = gr.Button(value="Compute Depth for Single Image", variant="primary")
         grey_depth_file_single = gr.File(label="greyscale depth map", elem_id="download")
 
@@ -240,6 +268,16 @@ with gr.Blocks(css=css) as demo:
             grey_depth_filename, grey_depth_image = process_image(original_image, bit_depth, input_size)
             grey_depth_image_np = np.array(grey_depth_image)
             return [(original_image, grey_depth_image_np), grey_depth_filename]
+        
+        def update_input_size_on_upload(image):
+            """Update input size slider when a new image is uploaded"""
+            if image is not None:
+                optimal_size = calculate_optimal_input_size(image, max_size=1024)
+                return gr.update(value=optimal_size)
+            return gr.update(value=518)
+        
+        # Connect image upload to input size update
+        input_image.upload(update_input_size_on_upload, inputs=[input_image], outputs=[input_size_single])
         
         submit_single.click(on_submit_single, inputs=[input_image, bit_depth_single, input_size_single], outputs=[depth_image_slider, grey_depth_file_single])
 
