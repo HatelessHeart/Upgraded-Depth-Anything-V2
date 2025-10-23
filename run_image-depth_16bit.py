@@ -35,7 +35,7 @@ def download_model(model_name):
             f.write(data)
     progress_bar.close()
 
-def process_image(img_path, output_path, input_size, encoder):
+def process_image(img_path, output_path, input_size, encoder, pred_only, grayscale):
     DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
 
     model_configs = {
@@ -81,13 +81,15 @@ def remove_double_quotes(path):
     return path.replace('"', '')
 
 def main():
-    parser = argparse.ArgumentParser(description='Depth Anything V2')
+    parser = argparse.ArgumentParser(description='Depth Anything V2 - 16-bit')
 
     parser.add_argument('--img-path', type=str, help='Path to the image file or directory containing images')
     parser.add_argument('--input-size', type=int, default=518, help='Input size for the model. Must be a multiple of 14.')
     parser.add_argument('--outdir', type=str, default='vis_img_depth', help='Output directory')
 
     parser.add_argument('--encoder', type=str, default='vitl', choices=['vits', 'vitb', 'vitl', 'vitg'])
+    parser.add_argument('--pred-only', dest='pred_only', action='store_true', help='only display the prediction')
+    parser.add_argument('--grayscale', dest='grayscale', action='store_true', help='do not apply colorful palette')
 
     args = parser.parse_args()
 
@@ -95,12 +97,12 @@ def main():
         args.img_path = input("Path to image file/directory, can right click a file and Copy as Path: ").strip()
 
     if not args.outdir:
-        args.outdir = input("Please enter the output directory (default is 'vis_img_depth'): ").strip() or 'vis_depth'
+        args.outdir = input("Please enter the output directory (default is 'vis_img_depth'): ").strip() or 'vis_img_depth'
 
     args.img_path = remove_double_quotes(args.img_path)
     args.outdir = remove_double_quotes(args.outdir)
 
-    process_image(args.img_path, args.outdir, args.input_size, args.encoder)
+    process_image(args.img_path, args.outdir, args.input_size, args.encoder, args.pred_only, args.grayscale)
 
 if __name__ == '__main__':
     main()

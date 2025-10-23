@@ -8,5 +8,8 @@ cd /d "%SCRIPT_DIR%"
 REM Activate the virtual environment
 CALL venv\Scripts\activate
 
-REM Run the conversion script
-python run_video-depth.py
+REM Run the video depth processing script
+python run_video-depth.py %*
+
+REM Keep the window open to see any output
+pause

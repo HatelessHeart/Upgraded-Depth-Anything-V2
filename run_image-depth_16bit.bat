@@ -8,5 +8,8 @@ cd /d "%SCRIPT_DIR%"
 REM Activate the virtual environment
 CALL venv\Scripts\activate
 
-REM Run the conversion script
-python run_image-depth_16bit.py
+REM Run the 16-bit depth processing script
+python run_image-depth_16bit.py %*
+
+REM Keep the window open to see any output
+pause
